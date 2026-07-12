@@ -1,0 +1,52 @@
+#include <bits/stdc++.h>
+#include <atcoder/all>
+using namespace std;
+using namespace atcoder;
+using ull = unsigned long long;
+using ll = long long;
+using Int = long long;
+using vi = vector<int>;
+using vd = vector<double>;
+using vl = vector<ll>;
+using vs = vector<string>;
+using P = pair<int,int>;
+using lP = pair<ll,ll>;
+using dP = pair<double,double>;
+using T = tuple<int,int,int>;
+using lT = tuple<ll,ll,ll>;
+using dT = tuple<double,double,double>;
+//using mint = modint1000000007;
+using mint = modint998244353;
+#define rep(i,n) for(Int i = 0; i < (Int)n; ++i)
+#define REP(i,x,y) for(Int i = x; i < (Int)y; ++i)
+#define all(X) (X).begin(), (X).end()
+#define rall(X) (X).rbegin(), (X).rend()
+#define fio() ios::sync_with_stdio(false); cin.tie(0); cout.tie(NULL);
+#define X first
+#define Y second
+#define sp(X) cout << fixed << setprecision(X);
+template<class T> bool chmax(T &a, const T &b) { if (a<b) { a = b; return 1; } return 0; }
+template<class T> bool chmin(T &a, const T &b) { if (a>b) { a = b; return 1; } return 0; }
+const int INF = INT_MAX / 2;
+const ll INFL = 1LL << 60;
+vi dx = {-1, 0, 1, 0}, dy = {0, 1, 0, -1};
+//const ll MOD = 1000000007;
+const ll MOD = 998244353;
+using fT = tuple<ll,ll,ll,ll>;
+
+template<typename T>
+complex<T> rotate_degree(complex<T> z, T degree){
+    // 1 degree = pi / 180.0
+    return z * polar(1.0, degree * acos(-1.0) / 180.0);
+}
+
+int main(){
+    fio()
+    
+    double a,b,d; cin >> a >> b >> d;
+    complex<double> no(a,b);
+    complex<double> ret = rotate_degree(no,d);
+    sp(10);
+    cout << ret.real() << " " << ret.imag() << endl;
+    return 0 ;
+}
