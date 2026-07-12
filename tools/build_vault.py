@@ -176,6 +176,10 @@ def yaml_value(value: object) -> str:
         return str(value)
     if isinstance(value, bool):  # bool は int のサブクラスなので int より先に判定する
         return "true" if value else "false"
+    if isinstance(value, float) and not math.isfinite(value):
+        # str(nan) は "nan"。YAML の float リテラルは ".nan" なので、そのまま書くと文字列に
+        # なって静かに型が崩れる。ここに来る値は無いはずなので、黙って通さず落とす。
+        raise ValueError(f"frontmatter に書けない数値: {value!r}")
     if isinstance(value, (int, float)):
         return str(value)
     if isinstance(value, list):
@@ -249,17 +253,26 @@ def render_note(
     )
 
 
-def should_prune(*, limit: int | None, missing_code: int) -> bool:
-    """全件を走り切ったときだけ古いノートを消してよい。
+def prune_blocker(*, limit: int | None, written: int, missing_code: int) -> str | None:
+    """古いノートを消してはいけない理由。消してよければ None。
 
-    prune は「今回書かなかったノート = 対象外になったノート」という前提に立つ。部分実行では
-    この前提が崩れる:
+    prune は「今回書かなかったノート = 対象外になったノート」という前提に立つ。全件を走り切って
+    いないとこの前提が崩れ、消してはいけないノートまで消える:
     - `--limit 5` は 5 問しか書かないので、残り 1,711 枚が「対象外」に見えてしまう。
       動作確認のつもりで打った --limit が Vault を全消しする。
-    - コード未取得の問題があるときも、そのノートを消してしまう（fetch_code.py が
-      途中までしか走っていない状態で実行しうる）。
+    - コードが未取得の問題があるとき（fetch_code.py が途中までしか走っていない）。
+    - 書き出しが 0 件のとき。submissions.json が壊れている・空・別ユーザーのもの、という
+      事故が実際に起こりうる（fetch_meta.py はページングを打ち切ると不完全なファイルを書く）。
+
+    どうしても消したいときは --prune で上書きできる（恒久的に取得できない提出が残ったときの脱出口）。
     """
-    return limit is None and missing_code == 0
+    if limit is not None:
+        return "--limit 付きの部分実行"
+    if written == 0:
+        return "書き出したノートが 0 件（submissions.json が空か壊れている可能性）"
+    if missing_code:
+        return f"コード未取得の問題が {missing_code} 問（fetch_code.py が未完了の可能性）"
+    return None
 
 
 def prune_stale_notes(notes_dir: Path, keep: set[Path]) -> list[Path]:
@@ -269,11 +282,12 @@ def prune_stale_notes(notes_dir: Path, keep: set[Path]) -> list[Path]:
     （vault/ は「捨てて再生成できる」ことに意味がある）。
 
     notes_dir 直下の .md は全て build_vault.py の生成物とみなして消す（手書きのノートを
-    ここに置いてはいけない）。Obsidian の設定（vault/.obsidian/）やサブディレクトリ、
-    .md 以外のファイルには触れない。呼ぶ前に should_prune で全件実行かどうかを確かめること。
+    ここに置いてはいけない）。write_atomic が中断されて残った .md.part も掃除する。
+    Obsidian の設定（vault/.obsidian/）やサブディレクトリ、他の拡張子には触れない。
+    呼ぶ前に prune_blocker で全件実行かどうかを確かめること。
     """
     removed = []
-    for path in notes_dir.glob("*.md"):
+    for path in sorted(notes_dir.glob("*.md")) + sorted(notes_dir.glob("*.md.part")):
         if path not in keep and path.is_file():
             path.unlink()
             removed.append(path)
@@ -283,6 +297,11 @@ def prune_stale_notes(notes_dir: Path, keep: set[Path]) -> list[Path]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, help="最初の N 問だけ生成（動作確認用）")
+    parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="全件を走り切っていなくても、対象外のノートを削除する（既定では見送る）",
+    )
     args = parser.parse_args()
 
     submissions = json.loads((DATA_DIR / "submissions.json").read_text(encoding="utf-8"))
@@ -361,14 +380,16 @@ def main() -> None:
         if not tags:
             untagged += 1
 
-    pruning = should_prune(limit=args.limit, missing_code=len(missing_code))
-    removed = prune_stale_notes(NOTES_DIR, written) if pruning else []
+    blocker = prune_blocker(
+        limit=args.limit, written=len(written), missing_code=len(missing_code)
+    )
+    removed = prune_stale_notes(NOTES_DIR, written) if args.prune or not blocker else []
 
     print(f"生成 {len(written):,} ノート -> {NOTES_DIR}")
     if removed:
         print(f"  対象外になった古いノートを {len(removed):,} 件削除")
-    elif not pruning:
-        print("  部分実行のため、古いノートの削除は行わなかった")
+    elif blocker:
+        print(f"  古いノートの削除は見送った（{blocker}）。消すなら --prune")
     if missing_code:
         print(
             f"  コード未取得のため除外 {len(missing_code)} 問: {missing_code[:5]}"

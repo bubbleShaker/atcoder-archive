@@ -14,9 +14,9 @@ from build_vault import (
     canonical_contests,
     code_fence,
     display_difficulty,
+    prune_blocker,
     prune_stale_notes,
     render_note,
-    should_prune,
     validate_confirmed_tags,
     yaml_value,
 )
@@ -234,23 +234,32 @@ class PruneStaleNotesTest(unittest.TestCase):
         self.assertTrue(obsidian.exists())
         self.assertTrue(other.exists())
 
+    def test_書きかけの一時ファイルも掃除する(self):
+        # write_atomic が中断されると .md.part が残る。放っておくと永久に残る。
+        part = self._touch("abc305_c.md.part")
+        self.assertEqual(prune_stale_notes(self.dir, set()), [part])
 
-class ShouldPruneTest(unittest.TestCase):
-    """部分実行で prune すると Vault が全消しになる。この境界を固定する。"""
+
+class PruneBlockerTest(unittest.TestCase):
+    """全件を走り切っていないのに prune すると Vault が全消しになる。この境界を固定する。"""
 
     def test_全件を走り切ったときだけ消す(self):
-        self.assertTrue(should_prune(limit=None, missing_code=0))
+        self.assertIsNone(prune_blocker(limit=None, written=1716, missing_code=0))
 
     def test_limit付きでは消さない(self):
         # --limit 5 は 5 問しか書かないので、残り 1,711 枚が「対象外」に見えてしまう。
-        self.assertFalse(should_prune(limit=5, missing_code=0))
+        self.assertIsNotNone(prune_blocker(limit=5, written=5, missing_code=0))
 
     def test_limit0でも消さない(self):
-        self.assertFalse(should_prune(limit=0, missing_code=0))
+        self.assertIsNotNone(prune_blocker(limit=0, written=0, missing_code=0))
+
+    def test_書き出しが0件なら消さない(self):
+        # submissions.json が空・壊れている・別ユーザーのもの、という事故で全消しになる。
+        self.assertIsNotNone(prune_blocker(limit=None, written=0, missing_code=0))
 
     def test_コード未取得の問題があれば消さない(self):
         # fetch_code.py が途中までしか走っていないだけで、対象外になったわけではない。
-        self.assertFalse(should_prune(limit=None, missing_code=1))
+        self.assertIsNotNone(prune_blocker(limit=None, written=10, missing_code=1))
 
 
 class ValidateConfirmedTagsTest(unittest.TestCase):

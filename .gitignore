@@ -12,6 +12,7 @@ vault/problems/
 # 唯一の資産なので追跡する。M4 の Dataview 設定がここに入る。
 vault/.obsidian/workspace*
 vault/.obsidian/cache
+vault/.trash/
 
 __pycache__/
 *.pyc

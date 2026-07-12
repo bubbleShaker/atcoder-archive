@@ -26,7 +26,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from common import DATA_DIR, pick_latest_ac, problem_code_path
+from common import DATA_DIR, UnsafeIdError, pick_latest_ac, problem_code_path
 
 CODE_DIR = DATA_DIR / "code"
 
@@ -113,7 +113,8 @@ _RULES: tuple[Rule, ...] = (
     Rule("典型/数学/繰り返し二乗法", (r"\b(?:mod_?pow|pow_?mod|power_?mod|modexp)\b",)),
     Rule("典型/数学/素数", (r"\b(?:is_?prime\w*|sieve\w*|eratos\w*|primes?)\b",)),
     Rule("典型/数学/組合せ", (r"\b(?:nCr|nCk|comb\w*|binom\w*|factorial|kaijou)\b",)),
-    Rule("典型/数学/組合せ", (r"\bfact\w*\s*\[",)),  # 階乗テーブル
+    # 階乗テーブル。factor[ / factors[（素因数分解）を巻き込まないよう綴りを限定する。
+    Rule("典型/数学/組合せ", (r"\bfact(?:orial)?\s*\[",)),
     Rule("典型/数学/累積和", (_CUMULATIVE_SUM,)),
     Rule("典型/数学/累積和", (r"\b(?:cumsum|cum_sum|prefix_?sum|ruiseki\w*)\b",)),
     Rule("典型/数学/いもす法", (r"\bimos\b",)),
@@ -192,14 +193,20 @@ def main() -> None:
 
     submissions = json.loads((DATA_DIR / "submissions.json").read_text(encoding="utf-8"))
     targets = sorted(pick_latest_ac(submissions).values(), key=lambda s: s["problem_id"])
-    if args.limit:
+    if args.limit is not None:
         targets = targets[: args.limit]
 
     counts: collections.Counter[str] = collections.Counter()
     untagged = missing = 0
 
     for submission in targets:
-        path = problem_code_path(CODE_DIR, submission)
+        try:
+            path = problem_code_path(CODE_DIR, submission)
+        except UnsafeIdError:
+            # 外部由来の ID。fetch_code.py も build_vault.py も除外している。
+            # ここだけクラッシュさせない。
+            missing += 1
+            continue
         if not path.exists():
             missing += 1
             continue
