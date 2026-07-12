@@ -6,6 +6,7 @@ usage: python -m unittest discover -s tools -t tools -v
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -13,11 +14,13 @@ from common import (
     FetchError,
     UnsafeIdError,
     extract_submission_code,
+    is_known_language,
     language_name,
     pick_latest_ac,
     problem_code_path,
     source_extension,
 )
+from fetch_code import remove_stale_siblings, split_unsafe
 from fetch_meta import PAGE_SIZE, fetch_all_submissions
 
 
@@ -107,10 +110,15 @@ class SourceExtensionTest(unittest.TestCase):
     def test_未知の言語はtxtに落とす(self):
         self.assertEqual(source_extension("Brainfuck (bf 20041219)"), ".txt")
 
+    def test_未定義言語の判定はtxtかどうかで代用しない(self):
+        # Text 提出も拡張子は .txt なので、拡張子で「未定義」を数えると誤検知する。
+        self.assertTrue(is_known_language("Text (cat 8.28)"))
+        self.assertFalse(is_known_language("Brainfuck (bf 20041219)"))
+
 
 class ProblemCodePathTest(unittest.TestCase):
     def setUp(self):
-        self.code_dir = Path("/tmp/code")
+        self.code_dir = Path(tempfile.mkdtemp()) / "code"
 
     def test_コンテストごとのディレクトリに問題IDで保存する(self):
         path = problem_code_path(self.code_dir, submission())
@@ -124,6 +132,52 @@ class ProblemCodePathTest(unittest.TestCase):
         for dangerous in ("a/b", "a\\b", "C:evil", "..", "a b"):
             with self.assertRaises(UnsafeIdError):
                 problem_code_path(self.code_dir, submission(problem_id=dangerous))
+
+
+class RemoveStaleSiblingsTest(unittest.TestCase):
+    """unlink する破壊的関数なので、消してよいものだけが消えることを固定する。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def _touch(self, name: str) -> Path:
+        path = self.dir / name
+        path.write_text("x", encoding="utf-8")
+        return path
+
+    def test_同じ問題の別拡張子だけを消す(self):
+        target = self._touch("abc300_a.cs")
+        stale = self._touch("abc300_a.java")
+        other_problem = self._touch("abc300_a1.cpp")  # 別問題。前方一致では巻き込みうる
+        another = self._touch("abc300_b.cpp")
+        part = self._touch("abc300_a.cpp.part")
+
+        removed = remove_stale_siblings(target)
+
+        self.assertEqual(removed, [stale])
+        self.assertFalse(stale.exists())
+        for survivor in (target, other_problem, another, part):
+            self.assertTrue(survivor.exists(), f"{survivor.name} を巻き込んだ")
+
+    def test_消すものが無ければ何もしない(self):
+        target = self._touch("abc300_a.cpp")
+        self.assertEqual(remove_stale_siblings(target), [])
+        self.assertTrue(target.exists())
+
+
+class SplitUnsafeTest(unittest.TestCase):
+    def test_危険なIDの提出を取得対象から除外する(self):
+        safe, unsafe = split_unsafe(
+            [
+                submission(1),
+                submission(2, contest_id="../../etc"),
+                submission(3, problem_id="a/b"),
+            ]
+        )
+        self.assertEqual([s["id"] for s in safe], [1])
+        self.assertEqual([s["id"] for s in unsafe], [2, 3])
 
 
 class FetchAllSubmissionsTest(unittest.TestCase):

@@ -32,6 +32,7 @@ _BROWSER_UA_HOSTS = {"atcoder.jp"}
 # この間隔は http_get の内部で強制する。呼び出し側の sleep に頼ると、
 # 新しいスクリプトが書き忘れた瞬間に無制限アクセスになるため。
 REQUEST_INTERVAL_SEC = 1.0
+MAX_BACKOFF_SEC = 60
 _last_request_at = 0.0
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -87,7 +88,12 @@ def http_get(url: str, *, retries: int = 3) -> bytes:
             if error.code not in (429, 500, 502, 503, 504):
                 raise FetchError(f"{url} -> HTTP {error.code}") from error
             retry_after = error.headers.get("Retry-After") if error.headers else None
-            backoff = int(retry_after) if (retry_after or "").isdigit() else 2**attempt * 5
+            backoff = (
+                # サーバが Retry-After: 100000 を返してきても 27 時間眠らないよう頭を打つ。
+                min(int(retry_after), MAX_BACKOFF_SEC)
+                if (retry_after or "").isdigit()
+                else 2**attempt * 5
+            )
         except (urllib.error.URLError, TimeoutError) as error:
             last_error = error
             backoff = 2**attempt * 5
@@ -159,6 +165,10 @@ def language_name(language: str) -> str:
     """"C++ 20 (gcc 12.2)" -> "C++"、"PyPy3 (7.3.0)" -> "PyPy" のように正規化する。"""
     head = language.split("(")[0]
     return re.sub(r"[\s\d.]+\Z", "", head)
+
+
+def is_known_language(language: str) -> bool:
+    return language_name(language) in _EXTENSION_BY_LANGUAGE
 
 
 def source_extension(language: str) -> str:

@@ -58,6 +58,12 @@ def fetch_all_submissions(user: str, fetch: Fetcher = http_get) -> list[dict]:
         if added == 0:
             # 1 秒間に PAGE_SIZE 件以上の提出があると from_second が前進せず、
             # 同じページを永久に取り続けてしまう。新規ゼロなら打ち切る。
+            # ここに来た時点でデータは不完全なので、黙って成功扱いにはしない。
+            print(
+                f"警告: from_second={from_second} で新規提出が 0 件のため打ち切りました。"
+                "データが不完全な可能性があります。",
+                file=sys.stderr,
+            )
             break
 
         from_second = page[-1]["epoch_second"]

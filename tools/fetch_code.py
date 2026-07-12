@@ -19,6 +19,7 @@ from common import (
     UnsafeIdError,
     extract_submission_code,
     http_get,
+    is_known_language,
     language_name,
     pick_latest_ac,
     problem_code_path,
@@ -41,6 +42,10 @@ def remove_stale_siblings(path: Path) -> list[Path]:
 
     同じ問題を後から別言語で AC し直すと拡張子が変わり、旧ファイルが孤児として残る。
     1 問 1 ファイルの不変条件を保つ。
+
+    unlink する破壊的処理なので、path.stem が glob のメタ文字（* ? [）を含まないことに
+    依存している。これは problem_code_path の ID 検証が保証している（緩めると、
+    関係ないファイルまで消える）。
     """
     removed = []
     for sibling in path.parent.glob(f"{path.stem}.*"):
@@ -50,15 +55,35 @@ def remove_stale_siblings(path: Path) -> list[Path]:
     return removed
 
 
+def split_unsafe(targets: list[dict]) -> tuple[list[dict], list[dict]]:
+    """ファイルパスに使えない ID を持つ提出をあらかじめ分離する。
+
+    不正な ID は取得ループに入る前に弾く。1 件の異常データで全体がクラッシュするより、
+    その 1 件を除外して残りを取り切る方が、レジューム前提のバッチとして扱いやすい。
+    """
+    safe, unsafe = [], []
+    for submission in targets:
+        try:
+            problem_code_path(CODE_DIR, submission)
+            safe.append(submission)
+        except UnsafeIdError:
+            unsafe.append(submission)
+    return safe, unsafe
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, help="最初の N 件だけ取得（動作確認用）")
     args = parser.parse_args()
 
     submissions = json.loads((DATA_DIR / "submissions.json").read_text(encoding="utf-8"))
-    targets = sorted(
+    all_targets = sorted(
         pick_latest_ac(submissions).values(), key=lambda s: s["epoch_second"]
     )
+    targets, unsafe = split_unsafe(all_targets)
+    if unsafe:
+        print(f"警告: 安全でない ID の提出 {len(unsafe)} 件を除外しました: "
+              f"{[s['problem_id'] for s in unsafe[:5]]}\n")
 
     pending = [s for s in targets if not problem_code_path(CODE_DIR, s).exists()]
     already_done = len(targets) - len(pending)
@@ -77,14 +102,14 @@ def main() -> None:
 
     for index, submission in enumerate(pending, start=1):
         try:
-            path = problem_code_path(CODE_DIR, submission)
+            path = problem_code_path(CODE_DIR, submission)  # split_unsafe 済みなので通る
             page = http_get(submission_url(submission)).decode("utf-8")
             write_atomic(path, extract_submission_code(page))
             remove_stale_siblings(path)
-            if path.suffix == ".txt":
+            if not is_known_language(submission["language"]):
                 unknown_languages[language_name(submission["language"])] += 1
             status = "ok"
-        except (FetchError, UnsafeIdError, UnicodeDecodeError) as error:
+        except (FetchError, UnicodeDecodeError) as error:
             failures.append({"submission": submission, "error": str(error)})
             status = f"FAILED: {error}"
 
