@@ -1,4 +1,4 @@
-"""提出メタデータと difficulty を kenkoooo AtCoder Problems から取得する。
+"""提出メタデータ・difficulty・問題タイトルを kenkoooo AtCoder Problems から取得する。
 
 ソースコード本文はここでは取らない（API に含まれない）。本文は fetch_code.py が
 atcoder.jp から取得する。
@@ -19,6 +19,10 @@ from common import DATA_DIR, http_get, write_atomic
 
 SUBMISSIONS_API = "https://kenkoooo.com/atcoder/atcoder-api/v3/user/submissions"
 PROBLEM_MODELS_URL = "https://kenkoooo.com/atcoder/resources/problem-models.json"
+PROBLEMS_URL = "https://kenkoooo.com/atcoder/resources/problems.json"
+# 問題がどのコンテストで出題されたか。1 問が複数コンテストに属する（ABC の問題は
+# ADT でも再出題される）ので、出題元を特定するのに要る。build_vault.py が使う。
+CONTEST_PROBLEM_URL = "https://kenkoooo.com/atcoder/resources/contest-problem.json"
 
 # v3 API は 1 リクエストにつき最大 500 件しか返さない。
 PAGE_SIZE = 500
@@ -113,6 +117,18 @@ def main() -> None:
     raw = http_get(PROBLEM_MODELS_URL)
     write_atomic(models_path, raw)
     print(f"  {len(json.loads(raw)):,} 問ぶんの推定 difficulty -> {models_path}")
+
+    print("\n問題タイトル（problems.json）を取得中 …")
+    problems_path = DATA_DIR / "problems.json"
+    raw = http_get(PROBLEMS_URL)
+    write_atomic(problems_path, raw)
+    print(f"  {len(json.loads(raw)):,} 問ぶんのタイトル -> {problems_path}")
+
+    print("\nコンテストと問題の対応（contest-problem.json）を取得中 …")
+    contest_problem_path = DATA_DIR / "contest-problem.json"
+    raw = http_get(CONTEST_PROBLEM_URL)
+    write_atomic(contest_problem_path, raw)
+    print(f"  {len(json.loads(raw)):,} 組の対応 -> {contest_problem_path}")
 
 
 if __name__ == "__main__":

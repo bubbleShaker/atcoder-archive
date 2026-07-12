@@ -1,10 +1,18 @@
 # 再取得可能な外部データ（数 MB あるので追跡しない）
 data/problem-models.json
+data/problems.json
+data/contest-problem.json
 
-# Obsidian のローカル状態
+# 生成物。build_vault.py が data/ からいつでも作り直せる派生物なので追跡しない。
+# 追跡すると data/code のコードを二重管理することになり、タグ体系を変えるたびに
+# 1,716 ファイルぶんの diff が出てレビューが読めなくなる。
+vault/problems/
+
+# Obsidian のローカル状態。設定（vault/.obsidian/）そのものは data/ から再生成できない
+# 唯一の資産なので追跡する。M4 の Dataview 設定がここに入る。
 vault/.obsidian/workspace*
 vault/.obsidian/cache
-.obsidian/workspace*
+vault/.trash/
 
 __pycache__/
 *.pyc
