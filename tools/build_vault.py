@@ -21,7 +21,6 @@ import collections
 import datetime as dt
 import json
 import math
-import re
 from pathlib import Path
 
 from classify import auto_tags
@@ -35,6 +34,14 @@ from common import (
     problem_code_path,
     write_atomic,
 )
+from metadata import (
+    FENCE_LANGUAGE,
+    code_fence,
+    display_difficulty,
+    load_canonical_contests,
+    load_difficulties,
+    load_titles,
+)
 
 CODE_DIR = DATA_DIR / "code"
 TAGS_PATH = DATA_DIR / "tags.json"  # M3 が作る確定タグ。無ければ静的解析だけで組む。
@@ -43,91 +50,6 @@ NOTES_DIR = VAULT_DIR / "problems"
 
 # AtCoder のコンテスト時刻は JST。epoch を UTC で解釈すると日付が 1 日ずれる。
 JST = dt.timezone(dt.timedelta(hours=9))
-
-# 拡張子 → Obsidian（Prism）のシンタックスハイライト名。
-_FENCE_LANGUAGE = {
-    ".cpp": "cpp",
-    ".c": "c",
-    ".cs": "csharp",
-    ".java": "java",
-    ".js": "javascript",
-    ".ts": "typescript",
-    ".py": "python",
-    ".rs": "rust",
-    ".go": "go",
-    ".kt": "kotlin",
-    ".rb": "ruby",
-    ".sh": "bash",
-}
-
-
-def display_difficulty(raw: float | None) -> int | None:
-    """problem-models.json の difficulty を AtCoder Problems の表示値に補正する。
-
-    生の値は IRT の推定値で、易しい問題では負になる（abc138_a は -848）。そのまま使うと
-    「diff 1000-1200 の壁」を見るための軸が壊れるので、AtCoder Problems と同じ式で
-    400 未満を 0 以上に写す。
-    """
-    if raw is None:
-        return None
-    if raw >= 400:
-        return round(raw)
-    return round(400 / math.exp(1.0 - raw / 400))
-
-
-def load_titles() -> dict[str, str]:
-    """problem_id -> 問題名。
-
-    problems.json の `title` は "E. Snuke the Cookie Picker" と接頭辞が付くので `name` を使う。
-    `contest_id` も信用してはいけない（再出題コンテストの ID になっていることがある:
-    abc305_c の contest_id は adt_medium_20231130_1）。URL は提出側の contest_id で組む。
-    """
-    path = DATA_DIR / "problems.json"
-    if not path.exists():
-        raise SystemExit(
-            f"{path} が無い。先に `python tools/fetch_meta.py` を実行してタイトルを取得すること。"
-        )
-    problems = json.loads(path.read_text(encoding="utf-8"))
-    return {problem["id"]: problem["name"] for problem in problems}
-
-
-def load_difficulties() -> dict[str, dict]:
-    path = DATA_DIR / "problem-models.json"
-    if not path.exists():
-        raise SystemExit(
-            f"{path} が無い。先に `python tools/fetch_meta.py` を実行すること。"
-        )
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def canonical_contests(pairs: list[dict]) -> dict[str, str]:
-    """problem_id -> 出題元コンテスト。
-
-    1 問は複数のコンテストに属する（abc305_c は abc305 と ADT の 58 コンテストに属する）。
-    提出時の contest_id をそのまま使うと、ADT や AtCoder Beginners Selection で解き直した
-    124 問が adt_medium_… / abs 扱いになり、ABC・ARC 別の集計（M4）が壊れる。
-
-    AtCoder の problem_id は出題元コンテストの ID を接頭辞に持つ（abc305_c → abc305、
-    tessoku_book_a → tessoku-book）ので、候補の中から接頭辞一致するものを選ぶ。
-    開催日時では選べない: abs・practice・tessoku-book は start_epoch_second が 0 で、
-    「最も古いコンテスト」を採ると abc086_a の出題元が abs になってしまう。
-    """
-    canonical: dict[str, str] = {}
-    for pair in sorted(pairs, key=lambda p: (p["problem_id"], p["contest_id"])):
-        problem_id, contest_id = pair["problem_id"], pair["contest_id"]
-        # 末尾の "_" まで含めて照合する。付けないと contest "abc30" が abc305_c に一致しうる。
-        if problem_id.startswith(contest_id.replace("-", "_") + "_"):
-            canonical.setdefault(problem_id, contest_id)
-    return canonical
-
-
-def load_canonical_contests() -> dict[str, str]:
-    path = DATA_DIR / "contest-problem.json"
-    if not path.exists():
-        raise SystemExit(
-            f"{path} が無い。先に `python tools/fetch_meta.py` を実行すること。"
-        )
-    return canonical_contests(json.loads(path.read_text(encoding="utf-8")))
 
 
 def validate_confirmed_tags(raw: object) -> dict[str, list[str]]:
@@ -187,19 +109,6 @@ def yaml_value(value: object) -> str:
     return json.dumps(str(value), ensure_ascii=False)
 
 
-_BACKTICK_RUN_RE = re.compile(r"`+")
-
-
-def code_fence(code: str) -> str:
-    """コード中の最長バックティック連よりも長いフェンスを返す。
-
-    提出コードに ``` を含むコメントがあると、3 個固定のフェンスではノートが途中で閉じて
-    以降が壊れる。
-    """
-    longest = max((len(run.group()) for run in _BACKTICK_RUN_RE.finditer(code)), default=0)
-    return "`" * max(3, longest + 1)
-
-
 def render_note(
     submission: dict,
     *,
@@ -249,7 +158,7 @@ def render_note(
         f"# {title}\n\n"
         f"[問題ページ]({url}) · [提出]({submission_url})\n\n"
         f"## 提出コード\n\n"
-        f"{fence}{_FENCE_LANGUAGE.get(extension, '')}\n{body}{fence}\n"
+        f"{fence}{FENCE_LANGUAGE.get(extension, '')}\n{body}{fence}\n"
     )
 
 
