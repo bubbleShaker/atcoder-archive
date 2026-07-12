@@ -1,0 +1,11 @@
+# 再取得可能な外部データ（数 MB あるので追跡しない）
+data/problem-models.json
+
+# Obsidian のローカル状態
+vault/.obsidian/workspace*
+vault/.obsidian/cache
+.obsidian/workspace*
+
+__pycache__/
+*.pyc
+.venv/
