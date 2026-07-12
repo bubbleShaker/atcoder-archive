@@ -28,6 +28,8 @@ from classify import auto_tags
 from common import (
     DATA_DIR,
     UnsafeIdError,
+    ensure_inside,
+    ensure_safe_id,
     language_name,
     pick_latest_ac,
     problem_code_path,
@@ -128,11 +130,25 @@ def load_canonical_contests() -> dict[str, str]:
     return canonical_contests(json.loads(path.read_text(encoding="utf-8")))
 
 
+def validate_confirmed_tags(raw: object) -> dict[str, list[str]]:
+    """tags.json が {problem_id: [タグ, …]} の形であることを確かめる。
+
+    形が違っても frontmatter は壊れない（yaml_value が引用符で囲む）が、`tags: "典型/DP"` と
+    スカラーで出て Dataview の集計が**静かに**壊れる。黙って進むより落ちる方がよい。
+    """
+    if not isinstance(raw, dict):
+        raise SystemExit(f"{TAGS_PATH}: 最上位は問題 ID をキーとするオブジェクトであること")
+    for problem_id, tags in raw.items():
+        if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
+            raise SystemExit(f"{TAGS_PATH}: {problem_id} のタグが文字列のリストでない: {tags!r}")
+    return raw
+
+
 def load_confirmed_tags() -> dict[str, list[str]]:
     """M3 が確定させたタグ。まだ無ければ空（静的解析の候補だけで Vault を組む）。"""
     if not TAGS_PATH.exists():
         return {}
-    return json.loads(TAGS_PATH.read_text(encoding="utf-8"))
+    return validate_confirmed_tags(json.loads(TAGS_PATH.read_text(encoding="utf-8")))
 
 
 class Raw(str):
@@ -141,6 +157,9 @@ class Raw(str):
     date を "2023-06-10" と引用符付きで書くと YAML の型は文字列になり、Dataview で
     日付として比較できない（M4 で「直近半年の diff 1000 台」のような絞り込みができなくなる）。
     裸で書けば YAML 1.2 が日付型として解釈する。
+
+    **外部由来の値を包んではいけない。** 引用符もエスケープも通さないので、包んだ瞬間に
+    frontmatter インジェクションの経路になる。こちらで組み立てた値だけを包むこと。
     """
 
 
@@ -155,9 +174,9 @@ def yaml_value(value: object) -> str:
         return "null"
     if isinstance(value, Raw):  # str のサブクラスなので str より先に判定する
         return str(value)
-    if isinstance(value, bool):
+    if isinstance(value, bool):  # bool は int のサブクラスなので int より先に判定する
         return "true" if value else "false"
-    if isinstance(value, int):
+    if isinstance(value, (int, float)):
         return str(value)
     if isinstance(value, list):
         return "[" + ", ".join(yaml_value(item) for item in value) + "]"
@@ -230,16 +249,32 @@ def render_note(
     )
 
 
+def should_prune(*, limit: int | None, missing_code: int) -> bool:
+    """全件を走り切ったときだけ古いノートを消してよい。
+
+    prune は「今回書かなかったノート = 対象外になったノート」という前提に立つ。部分実行では
+    この前提が崩れる:
+    - `--limit 5` は 5 問しか書かないので、残り 1,711 枚が「対象外」に見えてしまう。
+      動作確認のつもりで打った --limit が Vault を全消しする。
+    - コード未取得の問題があるときも、そのノートを消してしまう（fetch_code.py が
+      途中までしか走っていない状態で実行しうる）。
+    """
+    return limit is None and missing_code == 0
+
+
 def prune_stale_notes(notes_dir: Path, keep: set[Path]) -> list[Path]:
     """今回書き出さなかった古いノートを消す。
 
     タグ体系や対象範囲を変えて再生成したとき、前回の残骸が Vault に居座ると集計が狂う
-    （vault/ は「捨てて再生成できる」ことに意味がある）。消すのは notes_dir 直下の .md だけで、
-    Obsidian の設定（vault/.obsidian/）や手書きのノートには触れない。
+    （vault/ は「捨てて再生成できる」ことに意味がある）。
+
+    notes_dir 直下の .md は全て build_vault.py の生成物とみなして消す（手書きのノートを
+    ここに置いてはいけない）。Obsidian の設定（vault/.obsidian/）やサブディレクトリ、
+    .md 以外のファイルには触れない。呼ぶ前に should_prune で全件実行かどうかを確かめること。
     """
     removed = []
     for path in notes_dir.glob("*.md"):
-        if path not in keep:
+        if path not in keep and path.is_file():
             path.unlink()
             removed.append(path)
     return removed
@@ -252,7 +287,7 @@ def main() -> None:
 
     submissions = json.loads((DATA_DIR / "submissions.json").read_text(encoding="utf-8"))
     targets = sorted(pick_latest_ac(submissions).values(), key=lambda s: s["problem_id"])
-    if args.limit:
+    if args.limit is not None:
         targets = targets[: args.limit]
 
     titles = load_titles()
@@ -264,14 +299,22 @@ def main() -> None:
     written: set[Path] = set()
     tag_counts: collections.Counter[str] = collections.Counter()
     missing_code: list[str] = []
-    missing_title = missing_diff = untagged = resolved_elsewhere = 0
+    unsafe_ids: list[str] = []
+    confirmed_count = missing_title = missing_diff = untagged = resolved_elsewhere = 0
 
     for submission in targets:
         problem_id = submission["problem_id"]
         try:
             code_path = problem_code_path(CODE_DIR, submission)
+            # problem_id は kenkoooo API 由来（= 自分の制御下にない値）。ノートのパスも
+            # コードのパスと同じ検証を通す。problem_code_path の副作用に安全性を頼ると、
+            # 「コードが無くてもノートは作る」に変えた瞬間にパストラバーサルが復活する。
+            note_path = ensure_inside(
+                NOTES_DIR, NOTES_DIR / f"{ensure_safe_id(problem_id, 'problem_id')}.md"
+            )
         except UnsafeIdError:
-            continue  # fetch_code.py が取得対象から外している ID。ノートも作らない。
+            unsafe_ids.append(problem_id)
+            continue
 
         if not code_path.exists():
             missing_code.append(problem_id)
@@ -282,6 +325,7 @@ def main() -> None:
         # 空リストで「典型なし」と確定させる余地を残すため、値ではなくキーの有無で判定する。
         is_confirmed = problem_id in confirmed
         tags = confirmed[problem_id] if is_confirmed else auto
+        confirmed_count += is_confirmed
 
         title = titles.get(problem_id)
         if title is None:
@@ -311,23 +355,27 @@ def main() -> None:
             extension=code_path.suffix,
         )
 
-        note_path = NOTES_DIR / f"{problem_id}.md"
         write_atomic(note_path, note)
         written.add(note_path)
         tag_counts.update(tags)
         if not tags:
             untagged += 1
 
-    removed = prune_stale_notes(NOTES_DIR, written)
+    pruning = should_prune(limit=args.limit, missing_code=len(missing_code))
+    removed = prune_stale_notes(NOTES_DIR, written) if pruning else []
 
     print(f"生成 {len(written):,} ノート -> {NOTES_DIR}")
     if removed:
         print(f"  対象外になった古いノートを {len(removed):,} 件削除")
+    elif not pruning:
+        print("  部分実行のため、古いノートの削除は行わなかった")
     if missing_code:
         print(
             f"  コード未取得のため除外 {len(missing_code)} 問: {missing_code[:5]}"
             "（`python tools/fetch_code.py` で取得できる）"
         )
+    if unsafe_ids:
+        print(f"  安全でない ID のため除外 {len(unsafe_ids)} 問: {unsafe_ids[:5]}")
     if missing_title:
         print(f"  タイトル不明 {missing_title} 問（problem_id で代用）")
     if missing_diff:
@@ -338,7 +386,7 @@ def main() -> None:
             "（ADT や AtCoder Beginners Selection で解き直したぶん）"
         )
 
-    print(f"\n  タグ確定済み（M3）: {sum(1 for s in targets if s['problem_id'] in confirmed):,} 問")
+    print(f"\n  タグ確定済み（M3）: {confirmed_count:,} 問")
     print(f"  タグなし: {untagged:,} 問 … M3 で Claude が埋める")
     print("\n  タグ上位:")
     for tag, count in tag_counts.most_common(10):

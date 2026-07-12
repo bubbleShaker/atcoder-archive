@@ -71,12 +71,18 @@ _WARSHALL_FLOYD_CHMIN = (
     r"chmin\s*\(\s*(\w+)\s*\[\s*i\s*\]\s*\[\s*j\s*\]\s*,\s*\1\s*\[\s*i\s*\]\s*\[\s*k\s*\]"
 )
 # for (int bit = 0; bit < (1 << n); ...) — ループ上限が 2^n なら bit 全探索。
-_BIT_ENUMERATION = r"for\s*\([^;{}]*;[^;{}]*<\s*\(?\s*1\s*(?:LL|ll|u|U)?\s*<<"
+# 括弧と改行を禁じて for ヘッダの中に閉じ込める。許すと `for (auto e : g[v]) …` の `)` を跨いで、
+# 後続の無関係な `if (x < (1 << 20))` まで 1 つのマッチとして拾ってしまう。
+_BIT_ENUMERATION = r"for\s*\([^;{}()\n]*;[^;{}()\n]*<\s*\(?\s*1\s*(?:LL|ll|u|U)?\s*<<"
+# rep(bit, 1 << n) — 共通テンプレートの `#define rep(i,n) for(Int i = 0; i < (Int)n; ++i)` 経由。
+# 実際にはこちらの書き方が主で、素の for で書かれることは少ない。
+_BIT_ENUMERATION_REP = r"\brep\s*\([^;{}()\n]*,\s*\(?\s*1\s*(?:LL|ll|u|U)?\s*<<"
 
 _RULES: tuple[Rule, ...] = (
     # --- 探索 ---
     Rule("典型/探索/二分探索", (r"\b(?:lower_bound|upper_bound|binary_search)\s*\(",)),
     Rule("典型/探索/bit全探索", (_BIT_ENUMERATION,)),
+    Rule("典型/探索/bit全探索", (_BIT_ENUMERATION_REP,)),
     Rule("典型/探索/順列全探索", (r"\bnext_permutation\s*\(",)),
     # queue<...> に push して pop する = BFS の骨格。
     # priority_queue は "_queue" の前が単語文字なので \bqueue には食われない。
@@ -106,7 +112,8 @@ _RULES: tuple[Rule, ...] = (
     Rule("典型/数学/mod演算", (r"\bmint\s+\w|<\s*mint\s*>|\bmint\s*\(",)),
     Rule("典型/数学/繰り返し二乗法", (r"\b(?:mod_?pow|pow_?mod|power_?mod|modexp)\b",)),
     Rule("典型/数学/素数", (r"\b(?:is_?prime\w*|sieve\w*|eratos\w*|primes?)\b",)),
-    Rule("典型/数学/組合せ", (r"\b(?:nCr|nCk|comb\w*|binom\w*|factorial|fact\s*\[|kaijou)\b",)),
+    Rule("典型/数学/組合せ", (r"\b(?:nCr|nCk|comb\w*|binom\w*|factorial|kaijou)\b",)),
+    Rule("典型/数学/組合せ", (r"\bfact\w*\s*\[",)),  # 階乗テーブル
     Rule("典型/数学/累積和", (_CUMULATIVE_SUM,)),
     Rule("典型/数学/累積和", (r"\b(?:cumsum|cum_sum|prefix_?sum|ruiseki\w*)\b",)),
     Rule("典型/数学/いもす法", (r"\bimos\b",)),

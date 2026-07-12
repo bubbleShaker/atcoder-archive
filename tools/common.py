@@ -176,19 +176,33 @@ def source_extension(language: str) -> str:
     return _EXTENSION_BY_LANGUAGE.get(language_name(language), ".txt")
 
 
+def ensure_safe_id(value: object, key: str) -> str:
+    """外部由来の識別子がファイル名に使えることを検証する。
+
+    パスを組む処理は必ずこれを通すこと。「他の処理が検証しているはず」に頼ると、
+    その処理を外した瞬間に静かにパストラバーサルが復活する。
+    """
+    if not _SAFE_ID_RE.match(str(value)):
+        raise UnsafeIdError(f"{key}={value!r} は安全な識別子ではない")
+    return str(value)
+
+
+def ensure_inside(directory: Path, path: Path) -> Path:
+    """path が directory の外を指していないことを保証する。
+
+    ensure_safe_id をすり抜ける経路が将来できても、書き込み先が外に出ないようにする二重の防壁。
+    """
+    if not path.resolve().is_relative_to(directory.resolve()):
+        raise UnsafeIdError(f"{path} が {directory} の外を指している")
+    return path
+
+
 def problem_code_path(code_dir: Path, submission: dict) -> Path:
     """提出を保存するパスを決める。contest_id / problem_id は必ず検証する。"""
-    for key in ("contest_id", "problem_id"):
-        if not _SAFE_ID_RE.match(str(submission[key])):
-            raise UnsafeIdError(f"{key}={submission[key]!r} は安全な識別子ではない")
-
+    contest_id = ensure_safe_id(submission["contest_id"], "contest_id")
+    problem_id = ensure_safe_id(submission["problem_id"], "problem_id")
     extension = source_extension(submission["language"])
-    path = code_dir / submission["contest_id"] / f"{submission['problem_id']}{extension}"
-
-    # 正規表現をすり抜ける経路が将来できても、書き込み先が code_dir の外に出ないことを保証する。
-    if not path.resolve().is_relative_to(code_dir.resolve()):
-        raise UnsafeIdError(f"{path} が {code_dir} の外を指している")
-    return path
+    return ensure_inside(code_dir, code_dir / contest_id / f"{problem_id}{extension}")
 
 
 def write_atomic(path: Path, content: str | bytes) -> None:

@@ -79,6 +79,15 @@ class ClassifyTest(unittest.TestCase):
     def test_単なるシフト演算はbit全探索にしない(self):
         self.assertNotIn("典型/探索/bit全探索", classify("int x = 1 << k;"))
 
+    def test_range_forの後ろのシフトを巻き込まない(self):
+        # `;` を含まない range-for を跨いで、無関係な `if (x < (1 << 20))` に届いてしまう穴。
+        code = "for (auto e : g[v]) d[e] = 1;\nif (x < (1 << 20)) ok = true;"
+        self.assertNotIn("典型/探索/bit全探索", classify(code))
+
+    def test_repマクロ経由のbit全探索も拾う(self):
+        # テンプレートの #define rep(i,n) 経由。実際にはこの書き方が主。
+        self.assertIn("典型/探索/bit全探索", classify("rep(bit, 1 << n) { … }"))
+
     def test_dp配列をDPとみなす(self):
         self.assertIn("典型/DP", classify("vector<int> dp(n + 1); dp[0] = 1;"))
 

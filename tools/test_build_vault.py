@@ -16,6 +16,8 @@ from build_vault import (
     display_difficulty,
     prune_stale_notes,
     render_note,
+    should_prune,
+    validate_confirmed_tags,
     yaml_value,
 )
 
@@ -231,6 +233,44 @@ class PruneStaleNotesTest(unittest.TestCase):
         self.assertEqual(prune_stale_notes(self.dir, set()), [])
         self.assertTrue(obsidian.exists())
         self.assertTrue(other.exists())
+
+
+class ShouldPruneTest(unittest.TestCase):
+    """部分実行で prune すると Vault が全消しになる。この境界を固定する。"""
+
+    def test_全件を走り切ったときだけ消す(self):
+        self.assertTrue(should_prune(limit=None, missing_code=0))
+
+    def test_limit付きでは消さない(self):
+        # --limit 5 は 5 問しか書かないので、残り 1,711 枚が「対象外」に見えてしまう。
+        self.assertFalse(should_prune(limit=5, missing_code=0))
+
+    def test_limit0でも消さない(self):
+        self.assertFalse(should_prune(limit=0, missing_code=0))
+
+    def test_コード未取得の問題があれば消さない(self):
+        # fetch_code.py が途中までしか走っていないだけで、対象外になったわけではない。
+        self.assertFalse(should_prune(limit=None, missing_code=1))
+
+
+class ValidateConfirmedTagsTest(unittest.TestCase):
+    """M3 が作る外部ファイル。形が違えば Dataview の集計が静かに壊れるので落とす。"""
+
+    def test_正しい形はそのまま通す(self):
+        tags = {"abc305_c": ["典型/探索/幅優先探索"], "abc300_a": []}
+        self.assertEqual(validate_confirmed_tags(tags), tags)
+
+    def test_タグがリストでなければ落とす(self):
+        with self.assertRaises(SystemExit):
+            validate_confirmed_tags({"abc305_c": "典型/DP"})
+
+    def test_タグに文字列以外が混ざれば落とす(self):
+        with self.assertRaises(SystemExit):
+            validate_confirmed_tags({"abc305_c": ["典型/DP", 42]})
+
+    def test_最上位がオブジェクトでなければ落とす(self):
+        with self.assertRaises(SystemExit):
+            validate_confirmed_tags(["abc305_c"])
 
 
 if __name__ == "__main__":
