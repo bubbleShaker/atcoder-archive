@@ -35,6 +35,12 @@ CODE_DIR = DATA_DIR / "code"
 MATERIAL_CONTESTS = {"APG4b"}
 MATERIAL_TAG = "教材"
 
+# AHC はヒューリスティックコンテスト（最適解ではなくスコアを競う）。典型で分類する対象では
+# ないので #ヒューリスティック だけを付ける。contest_id の接頭辞で機械的に決まる規則なので、
+# M3 の Claude の判断に委ねない（バッチごとに「貪欲」「シミュレーション」と割れるのを防ぐ）。
+HEURISTIC_PREFIX = "ahc"
+HEURISTIC_TAG = "ヒューリスティック"
+
 
 @dataclass(frozen=True)
 class Rule:
@@ -164,6 +170,20 @@ def strip_noise(code: str) -> str:
     return _NOISE_RE.sub(replace, code)
 
 
+def drop_redundant_parents(tags: list[str]) -> list[str]:
+    """子タグがあるなら親タグを落とす（`典型/DP` と `典型/DP/bitDP` なら後者だけ）。
+
+    taxonomy.json の規範「最も具体的な葉だけを付ける」を静的解析にも効かせる。M3 で Claude が
+    付ける確定タグだけ葉にしても、静的解析でタグが付いた問題はここの出力がそのまま Vault の
+    tags になるので、規約が 2 系統に割れてしまう。
+
+    親を落としても集計は失われない。Obsidian も Dataview も階層タグを前置一致で展開するため、
+    `典型/DP/bitDP` は `典型/DP` の集計に自動で入る。裸の親タグは「そのカテゴリだが下位分類の
+    どれでもない」を意味する枠として残す。
+    """
+    return [tag for tag in tags if not any(t.startswith(f"{tag}/") for t in tags)]
+
+
 def classify(code: str) -> list[str]:
     """コードからタグ候補を返す。順序は _RULES の定義順（実行ごとに揺れない）。"""
     stripped = strip_noise(code)
@@ -171,7 +191,7 @@ def classify(code: str) -> list[str]:
     for rule in _RULES:
         if rule.tag not in tags and rule.matches(stripped):
             tags.append(rule.tag)
-    return tags
+    return drop_redundant_parents(tags)
 
 
 def is_material(contest_id: str) -> bool:
@@ -179,10 +199,23 @@ def is_material(contest_id: str) -> bool:
     return contest_id in MATERIAL_CONTESTS
 
 
+def is_heuristic(contest_id: str) -> bool:
+    """典型分類の対象外とするヒューリスティックコンテストか（AHC）。"""
+    return contest_id.lower().startswith(HEURISTIC_PREFIX)
+
+
+def rule_tags() -> frozenset[str]:
+    """静的解析が付けうるタグの全集合。taxonomy.json との整合を外から検査するため。"""
+    return frozenset(rule.tag for rule in _RULES) | {MATERIAL_TAG, HEURISTIC_TAG}
+
+
 def auto_tags(submission: dict, code: str) -> list[str]:
-    """1 提出に対する自動タグ。教材は典型分類せず #教材 だけを付ける。"""
-    if is_material(submission["contest_id"]):
+    """1 提出に対する自動タグ。教材と AHC は典型分類せず除外タグだけを付ける。"""
+    contest_id = submission["contest_id"]
+    if is_material(contest_id):
         return [MATERIAL_TAG]
+    if is_heuristic(contest_id):
+        return [HEURISTIC_TAG]
     return classify(code)
 
 
