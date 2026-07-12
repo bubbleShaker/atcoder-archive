@@ -94,9 +94,11 @@ AtCoder Problems の表示値に合わせて 400 未満に `400 / exp(1 - d/400)
 - **M3 の成果は `vault/` ではなく `data/tags.json` に置く。** `build_vault.py` がそれを読んで
   `tags` にマージし、`tag_source: claude` を立てる。こうすると `vault/` は最後まで
   「捨てて再生成できる派生物」のままでいられる（M1 から守っている骨格）。
-- **`vault/` は git 追跡しない。** 中身は `data/code` のコードの複製 + frontmatter なので、
+- **`vault/problems/` は git 追跡しない。** 中身は `data/code` のコードの複製 + frontmatter なので、
   追跡するとコードを二重管理することになり、タグ体系を変えるたびに 1,716 ファイルぶんの
   diff が出てレビューが読めなくなる。`data/` があれば誰でも再生成できる。
+  ただし `vault/.obsidian/`（Obsidian の設定）は追跡する。再生成できない唯一の資産で、
+  タグペインやグラフの表示設定がここに入る。理由は PLAN.md の「セッション再開の入り口」§1。
 
 ## 残っていること
 
