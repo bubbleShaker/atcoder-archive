@@ -188,6 +188,13 @@ class CheckManifestTest(ShardDirTestCase):
         with self.assertRaises(BoundaryMismatch):
             check_manifest(split_batches([problem("abc001_a")]))
 
+    def test_壊れたmanifestは対処を示して止める(self):
+        # manifest は git 追跡下なので、ブランチをまたぐとコンフリクトのマーカーが入りうる。
+        # 全コマンドのゲートがここなので、生のトレースバックで死んではいけない。
+        (self.shard_dir / "_manifest.json").write_text("<<<<<<< HEAD\n{", encoding="utf-8")
+        with self.assertRaises(BoundaryMismatch):
+            check_manifest(split_batches([problem("abc001_a")]))
+
 
 class CoverageTest(ShardDirTestCase):
     def setUp(self):
