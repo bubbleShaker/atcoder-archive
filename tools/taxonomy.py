@@ -62,10 +62,16 @@ def parse_taxonomy(raw: object) -> dict[str, list[str]]:
     typical = _check_tag_list(raw.get("typical"), "typical", prefix=TYPICAL_PREFIX)
     excluded = _check_tag_list(raw.get("excluded"), "excluded", prefix=None)
 
+    # note はタグ付けの規約そのもので、batch_tags.py がプロンプトに載せる。空だと 18 バッチが
+    # 規約なしで走ってしまうので、飾りではなく必須項目として検証する。
+    note = raw.get("note")
+    if not isinstance(note, list) or not note or not all(isinstance(line, str) for line in note):
+        raise TaxonomyError("note は空でない文字列のリストでなければならない")
+
     overlap = set(typical) & set(excluded)
     if overlap:
         raise TaxonomyError(f"typical と excluded に同じタグがある: {sorted(overlap)}")
-    return {"typical": typical, "excluded": excluded}
+    return {"typical": typical, "excluded": excluded, "note": note}
 
 
 def load_taxonomy(path: Path = TAXONOMY_PATH) -> dict[str, list[str]]:

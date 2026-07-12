@@ -14,6 +14,10 @@ vault/.obsidian/workspace*
 vault/.obsidian/cache
 vault/.trash/
 
+# M3 のバッチプロンプト。batch_tags.py が data/ からいつでも作り直せる派生物。
+# 追跡すると 1,070 問ぶんのコードを二重管理することになる。
+build/
+
 __pycache__/
 *.pyc
 .venv/

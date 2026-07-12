@@ -21,7 +21,12 @@ from taxonomy import (
 
 
 def taxonomy_data(**overrides: object) -> dict:
-    base: dict = {"version": 1, "typical": ["典型/DP"], "excluded": ["教材"]}
+    base: dict = {
+        "version": 1,
+        "note": ["最も具体的な葉だけを付ける。"],
+        "typical": ["典型/DP"],
+        "excluded": ["教材"],
+    }
     base.update(overrides)
     return base
 
@@ -29,7 +34,13 @@ def taxonomy_data(**overrides: object) -> dict:
 class ParseTaxonomyTest(unittest.TestCase):
     def test_正しい語彙を読める(self):
         parsed = parse_taxonomy(taxonomy_data())
-        self.assertEqual(parsed, {"typical": ["典型/DP"], "excluded": ["教材"]})
+        self.assertEqual(parsed["typical"], ["典型/DP"])
+        self.assertEqual(parsed["excluded"], ["教材"])
+
+    def test_noteが空なら弾く(self):
+        # note はタグ付けの規約そのもの。空だと 18 バッチが規約なしで走ってしまう。
+        with self.assertRaises(TaxonomyError):
+            parse_taxonomy(taxonomy_data(note=[]))
 
     def test_未知のversionを弾く(self):
         with self.assertRaises(TaxonomyError):
