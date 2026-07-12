@@ -7,7 +7,14 @@ from __future__ import annotations
 
 import unittest
 
-from classify import auto_tags, classify, is_material, strip_noise
+from classify import (
+    auto_tags,
+    classify,
+    drop_redundant_parents,
+    is_heuristic,
+    is_material,
+    strip_noise,
+)
 
 
 class StripNoiseTest(unittest.TestCase):
@@ -161,6 +168,33 @@ int main(){
         self.assertEqual(classify(code), classify(code))
 
 
+class DropRedundantParentsTest(unittest.TestCase):
+    """taxonomy.json の規範「最も具体的な葉だけを付ける」を静的解析にも効かせる。"""
+
+    def test_子があれば親を落とす(self):
+        self.assertEqual(
+            drop_redundant_parents(["典型/グラフ", "典型/グラフ/ダイクストラ"]),
+            ["典型/グラフ/ダイクストラ"],
+        )
+
+    def test_子が無ければ親を残す(self):
+        # 裸の親タグは「そのカテゴリだが下位分類のどれでもない」を意味する枠として残す。
+        self.assertEqual(drop_redundant_parents(["典型/グラフ"]), ["典型/グラフ"])
+
+    def test_無関係なタグは消さない(self):
+        # `典型/DP` は `典型/DPナントカ` の親ではない（区切りは "/" である）。
+        self.assertEqual(
+            drop_redundant_parents(["典型/DP", "典型/データ構造/set"]),
+            ["典型/DP", "典型/データ構造/set"],
+        )
+
+    def test_bitDPの問題に親のDPを併記しない(self):
+        code = "vector<int> dp(1 << n); dp[0] = 1; for (int s = 0; s < (1 << n); s++) dp[s] += 1;"
+        tags = classify(code)
+        self.assertIn("典型/DP/bitDP", tags)
+        self.assertNotIn("典型/DP", tags)
+
+
 class MaterialTest(unittest.TestCase):
     def test_APG4bは教材として典型分類しない(self):
         submission = {"contest_id": "APG4b", "problem_id": "APG4b_a"}
@@ -172,6 +206,19 @@ class MaterialTest(unittest.TestCase):
         submission = {"contest_id": "tessoku-book", "problem_id": "tessoku_book_a"}
         self.assertFalse(is_material("tessoku-book"))
         self.assertIn("典型/DP", auto_tags(submission, "dp[i] = dp[i-1];"))
+
+
+class HeuristicTest(unittest.TestCase):
+    def test_AHCはヒューリスティックとして典型分類しない(self):
+        # AHC はスコアを競うコンテストで、典型で分類する対象ではない。contest_id で機械的に
+        # 決まるので、M3 の Claude に「貪欲か実装か」を判断させない。
+        submission = {"contest_id": "ahc024", "problem_id": "ahc024_a"}
+        code = "vector<int> dp(n); set<int> s; priority_queue<int> pq;"
+        self.assertTrue(is_heuristic("ahc024"))
+        self.assertEqual(auto_tags(submission, code), ["ヒューリスティック"])
+
+    def test_abcはヒューリスティック扱いしない(self):
+        self.assertFalse(is_heuristic("abc305"))
 
 
 if __name__ == "__main__":
