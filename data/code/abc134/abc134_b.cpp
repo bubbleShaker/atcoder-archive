@@ -1,0 +1,8 @@
+#include <bits/stdc++.h>
+using namespace std;
+int main(){
+    double n,d;
+    cin>>n>>d;
+    cout<<(int)ceil(n/(2*d+1))<<endl;
+    return 0;
+}

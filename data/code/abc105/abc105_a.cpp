@@ -1,0 +1,7 @@
+#include <iostream>
+int main(){
+  int n,k;
+  std::cin>>n>>k;
+  std::cout<<((n%k==0)?0:1)<<'\n';
+  return 0;
+}
