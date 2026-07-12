@@ -52,13 +52,15 @@ atcoder-archive/
 │   ├── fetch_code.py          # ③ コード取得（レジューム対応）
 │   ├── classify.py            # ④ 静的解析でタグ候補
 │   └── build_vault.py         # ⑤ Obsidian ノート生成
-└── vault/problems/{problem_id}.md   # ⑥ Obsidian が開く Vault（git 追跡しない派生物）
+└── vault/                     # ⑥ Obsidian が開く Vault（ここを Vault として開く）
+    ├── problems/{problem_id}.md   #   ノート本体。派生物なので git 追跡しない
+    └── .obsidian/                 #   Obsidian の設定。再生成できないので git 追跡する
 ```
 
 理由:
 - 分類のやり直しは必ず起きる（タグ体系は使いながら育つ）。生データを固めておけば、
   分類を作り直しても 1,716 回のダウンロードは二度と走らない。
-- `vault/` は `build_vault.py` の出力する派生物。捨てて再生成できる状態を保つ。
+- `vault/problems/` は `build_vault.py` の出力する派生物。捨てて再生成できる状態を保つ。
 
 ## 取得範囲
 
@@ -120,14 +122,17 @@ M2 の宿題だった「階層タグがタグペインで木になるか」は**
 
 - **Vault として開くのは `~/git/atcoder-archive/vault`**（`vault/problems` ではない）。Obsidian の
   起動画面では「新しい保管庫を作成」ではなく「**フォルダーを保管庫として開く**」を選ぶ。
-- **タグペインはコアプラグイン**。リボン（クイックスイッチャーやグラフビューのアイコン列）には無く、
-  左サイドバーのタブとして出る。設定 → コアプラグイン → 「タグビュー」で有効化する。
+- **タグペインはコアプラグイン**（`core-plugins.json` の `tag-pane`）。リボン（クイックスイッチャーや
+  グラフビューのアイコン列）には無く、左サイドバーのタブとして出る。見当たらなければコマンド
+  パレット（`Ctrl+P`）で「タグ」と打ってタグペインを表示するか、設定 → コアプラグインで有効化する。
 - **グラフビューでノートが孤立するのは正常。** グラフの線は `[[wikilink]]` だけで引かれ、生成した
   ノートには一つも書いていない。グラフ設定の「タグ」を on にするとタグがノードになり、典型ごとの
   塊が見える。ただし問題間に本質的な依存関係は無いので、**弱点分析はグラフではなく M4 の
   Dataview（典型 × difficulty）でやる**。グラフはこの Vault の主役ではない。
 - 上記の状態（`tag-pane` 有効・グラフの `showTags: true`）は `vault/.obsidian/` に追跡してある。
-  クローンして開き直せば再現する。`workspace*` だけは `.gitignore` で除外（ローカル状態のため）。
+  クローンして開き直せば再現する。ローカル状態（`workspace*`・`cache`）は `.gitignore` で除外。
+- なお `graph.json` にはズーム倍率や物理パラメータも同居するため、グラフを触るたびに差分が出る。
+  **意味があるのは `showTags` だけ**なので、その手の差分はコミットしなくてよい。
 
 ### 2. M3 の着手手順
 
@@ -150,7 +155,9 @@ Issue を起票してから始める（`gh issue create`）。やることは
 
 ### 3. 触るときの不変条件（破ると設計が壊れる）
 
-- `data/` は書き換えない。`vault/` は `build_vault.py` の派生物で、捨てて再生成できる（git 追跡しない）。
+- `data/` は書き換えない。`vault/problems/` は `build_vault.py` の派生物で、捨てて再生成できる
+  （git 追跡しない）。**ただし `vault/.obsidian/`（Obsidian の設定）だけは追跡する** — data/ から
+  再生成できない唯一の資産なので、`vault/` を丸ごと ignore したり `git rm -r --cached vault/` しない。
 - 新しい取得スクリプトは必ず `common.http_get` を経由する（レート制限がその内部にある）。
 - 静的解析ルールは「宣言」ではなく「使用」を見る（テンプレート常駐の `dx/dy`・`MOD`・`mint`）。
 - テストは `python -m unittest discover -s tools -t tools`（93 件、ネットワーク不要）。
