@@ -205,10 +205,14 @@ def existing_shards() -> list[Path]:
     return [p for p in sorted(SHARD_DIR.glob("*.json")) if p.name != MANIFEST_PATH.name]
 
 
-def check_manifest(batches: list[Batch]) -> None:
+def check_manifest(batches: list[Batch], *, persist: bool = True) -> None:
     """バッチの割り当てが前回と同じかを照合する。違っていて shard が残っていれば止める。
 
     shard がまだ無いなら、境界が変わっても実害は無いので指紋を更新するだけでよい。
+
+    persist=False は「照合はするが記録は残さない」。merge_tags の --dry-run のように
+    「書かない」と宣言したコマンドが、ドリフト検知の唯一の記録を静かに更新して境界の変化を
+    追認してしまうのを防ぐ。
     """
     current = fingerprint(batches)
     previous = None
@@ -238,6 +242,9 @@ def check_manifest(batches: list[Batch]) -> None:
             "消える。data/tags.d/ を捨てて切り直すこと。"
         )
 
+    if not persist:
+        return  # 照合は済んでいる（shard が無いので実害も無い）。記録だけ残さない。
+
     write_atomic(
         MANIFEST_PATH,
         json.dumps(
@@ -253,22 +260,16 @@ def check_manifest(batches: list[Batch]) -> None:
     )
 
 
-def coverage(batch: Batch) -> Coverage:
-    """shard がバッチの全問題を覆っているかを調べる。
+def coverage_of(shard: object, batch: Batch) -> Coverage:
+    """shard データ（JSON をロードした結果）がバッチの全問題を覆っているかを調べる。IO はしない。
 
     「ファイルがあれば済み」にすると、プロンプトが途中で切れて後半が読まれなかった場合に
     その問題が永久に未分類のまま消える。shard の中身と突き合わせて初めて「済み」と言える。
 
-    shard を書くのは LLM なので、JSON 崩れ（末尾カンマ・フェンスの混入・途中で力尽きる）は
-    現実的な失敗モードである。--list は 18 バッチの進捗を見る唯一のダッシュボードで、そこから
-    復旧に入る導線でもあるので、壊れた shard 1 つで一覧全体が落ちてはいけない。
+    IO を分けてあるのは merge_tags のため。あちらは同じファイルを検証のために読む。判定を
+    書き直させると「--list では済みなのに merge では未処理」という 2 系統が生まれるので、
+    ファイルは 1 回だけ読ませ、判定はこの関数を共有させる。
     """
-    if not batch.shard_path.exists():
-        return Coverage(done=False)
-    try:
-        shard = json.loads(batch.shard_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        return Coverage(done=False, broken=f"JSON が壊れている: {exc}")
     if not isinstance(shard, dict):
         return Coverage(done=False, broken="root がオブジェクトでない")
     sections = {key: shard.get(key, {}) for key in ("tags", "pending")}
@@ -286,6 +287,21 @@ def coverage(batch: Batch) -> Coverage:
         missing=expected - covered,
         unexpected=covered - expected,
     )
+
+
+def coverage(batch: Batch) -> Coverage:
+    """shard ファイルを読んで coverage_of に渡す。
+
+    shard を書くのは LLM なので、JSON 崩れ（末尾カンマ・フェンスの混入・途中で力尽きる）は
+    現実的な失敗モードである。--list は 18 バッチの進捗を見る唯一のダッシュボードで、そこから
+    復旧に入る導線でもあるので、壊れた shard 1 つで一覧全体が落ちてはいけない。
+    """
+    if not batch.shard_path.exists():
+        return Coverage(done=False)
+    try:
+        return coverage_of(json.loads(batch.shard_path.read_text(encoding="utf-8")), batch)
+    except json.JSONDecodeError as exc:
+        return Coverage(done=False, broken=f"JSON が壊れている: {exc}")
 
 
 def render_rules(taxonomy: dict[str, list[str]]) -> str:

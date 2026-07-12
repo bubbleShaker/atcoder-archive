@@ -36,6 +36,9 @@ MAX_BACKOFF_SEC = 60
 _last_request_at = 0.0
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+# M3 の確定タグ。merge_tags.py が書き、build_vault.py が読む。片方に置くともう片方が
+# 生産者→消費者の向きに依存してしまうので、両者の下に置く。
+TAGS_PATH = DATA_DIR / "tags.json"
 
 # contest_id / problem_id は kenkoooo API 由来（= 自分の制御下にない値）で、
 # そのままファイルパスに使う。".." や ":" のような細工でデータディレクトリの外に

@@ -188,6 +188,19 @@ class CheckManifestTest(ShardDirTestCase):
         with self.assertRaises(BoundaryMismatch):
             check_manifest(split_batches([problem("abc001_a")]))
 
+    def test_persistFalseなら指紋を書かない(self):
+        # merge_tags の --dry-run 用。「書かない」と宣言したコマンドが、ドリフト検知の唯一の
+        # 記録を静かに更新して境界の変化を追認してはいけない。
+        check_manifest(split_batches([problem("abc001_a")]), persist=False)
+        self.assertFalse((self.shard_dir / "_manifest.json").exists())
+
+    def test_persistFalseでもshardがあれば止める(self):
+        # 記録は残さないが、照合そのものは効かせる（dry-run はドリフトの免罪符ではない）。
+        check_manifest(split_batches([problem("abc001_a")]))
+        (self.shard_dir / "low-000.json").write_text("{}", encoding="utf-8")
+        with self.assertRaises(BoundaryMismatch):
+            check_manifest(split_batches([problem("abc002_a")]), persist=False)
+
     def test_壊れたmanifestは対処を示して止める(self):
         # manifest は git 追跡下なので、ブランチをまたぐとコンフリクトのマーカーが入りうる。
         # 全コマンドのゲートがここなので、生のトレースバックで死んではいけない。
