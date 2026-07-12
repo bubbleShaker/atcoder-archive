@@ -26,6 +26,7 @@ from pathlib import Path
 from classify import auto_tags
 from common import (
     DATA_DIR,
+    TAGS_PATH,
     UnsafeIdError,
     ensure_inside,
     ensure_safe_id,
@@ -43,8 +44,7 @@ from metadata import (
     load_titles,
 )
 
-CODE_DIR = DATA_DIR / "code"
-TAGS_PATH = DATA_DIR / "tags.json"  # M3 が作る確定タグ。無ければ静的解析だけで組む。
+CODE_DIR = DATA_DIR / "code"  # TAGS_PATH（M3 の確定タグ）は common に置いてある
 VAULT_DIR = DATA_DIR.parent / "vault"
 NOTES_DIR = VAULT_DIR / "problems"
 
